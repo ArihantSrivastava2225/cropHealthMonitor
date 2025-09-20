@@ -1,0 +1,10 @@
+numpy
+torch
+rasterio
+pystac-client
+joblib
+pandas
+Pillow
+config
+planetary-computer
+requests
