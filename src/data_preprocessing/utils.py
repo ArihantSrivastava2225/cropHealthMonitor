@@ -19,6 +19,7 @@ def print_raster_stats(data_array, name=""):
     # Check the number of dimensions to handle different array types
     if data_array.ndim == 3: # (H, W, C)
         num_bands = data_array.shape[2]
+        # Calculate stats for each band individually to save RAM
         for i in range(num_bands):
             channel = data_array[:, :, i]
             stats_array = np.nan_to_num(channel)

@@ -32,6 +32,9 @@ if __name__ == '__main__':
         
         # --- Task 1: Define Universal Grid and Mask for the entire event ---
         common_grid, cropland_mask = define_event_grid_and_mask(event_raw_dir, viz_dir, event_name, TARGET_RESOLUTION)
+        if common_grid is None:
+            print(f"  Could not define grid for {event_name}. Skipping event.")
+            continue
 
         # --- Group all products by date ---
         products_by_date = defaultdict(list)
@@ -51,13 +54,14 @@ if __name__ == '__main__':
             masked_daily_data = process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz_dir, date_str)
             
             # --- Task 3: Create Patches ---
-            # NOTE: We now use the actual date in the filename for better tracking
-            npy_filename = f"patches_{date_str}_{i:02d}.npy"
-            npy_path = os.path.join(event_processed_dir, npy_filename)
-            create_and_save_patches(masked_daily_data, date_str, PATCH_SIZE, npy_path, viz_dir)
+            if masked_daily_data is not None:
+                # CRITICAL FIX: Change filename extension from .npy to .mat
+                mat_filename = f"patches_{date_str}_{i:02d}.mat"
+                mat_path = os.path.join(event_processed_dir, mat_filename)
+                create_and_save_patches(masked_daily_data, date_str, PATCH_SIZE, mat_path, viz_dir)
 
     print(f"\n{'='*20} PREPROCESSING COMPLETE {'='*20}")
     print(f"All processed data has been saved to: {os.path.abspath(PROCESSED_DATA_DIR)}")
     print("Check the 'visualizations' subfolder in each processed event directory.")
-    print("You can now upload the 'processed' folder to your Kaggle dataset.")
+    print("You can now upload the 'processed' folder (containing .mat files) for your MATLAB workflow.")
 

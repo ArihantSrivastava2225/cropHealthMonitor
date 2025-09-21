@@ -16,7 +16,6 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
     """Processes all products for one day and returns a final 6-channel masked array."""
     target_crs, target_transform, target_shape = common_grid
     
-    # --- MEMORY-EFFICIENT MOSAICKING SETUP ---
     mosaic_canvas_5_band = np.zeros(target_shape + (5,), dtype=np.float32)
     count_canvas = np.zeros(target_shape, dtype=np.uint8)
 
@@ -24,13 +23,11 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
     for product_path in product_paths:
         print(f"    - Processing product: {os.path.basename(product_path)}")
         
-        # --- Define Band Mapping ---
+        # ... (Identical code to open and reproject bands for a single product)...
         if "S2" in os.path.basename(product_path):
             band_map = {'blue': 'B02', 'green': 'B03', 'red': 'B04', 'nir': 'B08', 'swir1': 'B11'}
         else:
             band_map = {'blue': 'SR_B2', 'green': 'SR_B3', 'red': 'SR_B4', 'nir': 'SR_B5', 'swir1': 'SR_B6'}
-
-        # --- Process one product at a time ---
         reprojected_bands = {}
         if "S2" in os.path.basename(product_path):
             granule_path_list = glob.glob(os.path.join(product_path, 'GRANULE', 'L2A*'))
@@ -66,18 +63,17 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
     
     # --- Finalize the Mosaic ---
     count_canvas_expanded = np.expand_dims(count_canvas, axis=2)
-    count_canvas_expanded[count_canvas_expanded == 0] = 1
+    np.place(count_canvas_expanded, count_canvas_expanded == 0, 1) # In-place replacement
     final_mosaic_5_band = mosaic_canvas_5_band / count_canvas_expanded
     print_raster_stats(final_mosaic_5_band, f"{date_str} Raw Mosaic (5 bands)")
     del mosaic_canvas_5_band, count_canvas, count_canvas_expanded
 
-    # --- Create "Before" Visualization ---
+    # --- Visualizations & Masking ---
     red_before, nir_before, swir1_before = [final_mosaic_5_band[:,:,i] for i in [2, 3, 4]]
     false_color_before = create_false_color_composite(red_before, nir_before, swir1_before)
     Image.fromarray(false_color_before).save(os.path.join(viz_dir, f"{date_str}_01_before_mask.png"))
     print("      -> 'Before' visualization saved.")
     
-    # --- Apply Mask to the 5 raw bands ---
     masked_5_band_array = final_mosaic_5_band * cropland_mask[..., np.newaxis]
     del final_mosaic_5_band
     
@@ -103,14 +99,15 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
     # Calculate NDVI one step at a time to conserve RAM
     numerator_ndvi = nir - red
     denominator_ndvi = nir + red
-    denominator_ndvi[denominator_ndvi == 0] = 1 # Avoid division by zero
+    # Use np.place for in-place modification without a large temporary boolean array
+    np.place(denominator_ndvi, denominator_ndvi == 0, 1)
     ndvi = numerator_ndvi / denominator_ndvi
     del numerator_ndvi, denominator_ndvi # Free memory immediately
 
     # Calculate NDMI one step at a time
     numerator_ndmi = nir - swir1
     denominator_ndmi = nir + swir1
-    denominator_ndmi[denominator_ndmi == 0] = 1
+    np.place(denominator_ndmi, denominator_ndmi == 0, 1)
     ndmi = numerator_ndmi / denominator_ndmi
     del numerator_ndmi, denominator_ndmi # Free memory immediately
 
