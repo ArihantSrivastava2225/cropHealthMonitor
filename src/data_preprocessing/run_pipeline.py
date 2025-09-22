@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(SRC_DIR))
 
 # --- Use absolute imports from the 'src' level ---
 from data_preprocessing.config import RAW_DATA_DIR, PROCESSED_DATA_DIR, EVENT_METADATA, PATCH_SIZE, TARGET_RESOLUTION
-from data_preprocessing.jp2_to_tif import convert_all_jp2_to_tif
+from data_preprocessing.jp2_to_tig import convert_all_jp2_to_tif
 from data_preprocessing.grid_and_mask import define_event_grid_and_mask
 from data_preprocessing.process_and_mosaic import process_and_mosaic_daily_data
 from data_preprocessing.create_patches import create_and_save_patches
