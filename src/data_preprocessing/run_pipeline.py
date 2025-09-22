@@ -14,8 +14,10 @@ from config import RAW_DATA_DIR, PROCESSED_DATA_DIR, EVENT_METADATA, PATCH_SIZE,
 from grid_and_mask import define_event_grid_and_mask
 from process_and_mosaic import process_and_mosaic_daily_data
 from create_patches import create_and_save_patches
+from jp2_to_tig import convert_all_jp2_to_tif
 
 if __name__ == '__main__':
+    convert_all_jp2_to_tif(RAW_DATA_DIR)
     os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
     
     for event_name in EVENT_METADATA.keys():
