@@ -1,7 +1,10 @@
 """
 Main Orchestrator for the Kaggle Preprocessing Pipeline.
+This version first creates a writable, converted copy of the dataset
+to bypass driver and file system issues on Kaggle.
 """
 import os
+import shutil
 import sys
 from collections import defaultdict
 
@@ -11,17 +14,18 @@ SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SRC_DIR))
 
 # --- Use absolute imports from the 'src' level ---
-from data_preprocessing.config import RAW_DATA_DIR, PROCESSED_DATA_DIR, EVENT_METADATA, PATCH_SIZE, TARGET_RESOLUTION
-from data_preprocessing.jp2_to_tig import convert_all_jp2_to_tif
+from data_preprocessing.config import KAGGLE_INPUT_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, EVENT_METADATA, PATCH_SIZE, TARGET_RESOLUTION
+from data_preprocessing.o0_prepare_writable_dataset import prepare_writable_dataset
 from data_preprocessing.grid_and_mask import define_event_grid_and_mask
 from data_preprocessing.process_and_mosaic import process_and_mosaic_daily_data
 from data_preprocessing.create_patches import create_and_save_patches
 
 if __name__ == '__main__':
-    # --- STAGE 0: CONVERT ALL JP2 to TIF (Definitive Fix) ---
-    convert_all_jp2_to_tif(RAW_DATA_DIR)
+    # --- STAGE 0: Create a writable, converted copy of the entire dataset ---
+    # This solves both the read-only file system and the .jp2 driver issues.
+    prepare_writable_dataset(KAGGLE_INPUT_DIR, RAW_DATA_DIR)
     
-    # ... The rest of the script is unchanged ...
+    # --- The rest of the pipeline now runs on the new writable data ---
     TEMP_DIR = os.path.join(PROCESSED_DATA_DIR, 'temp_bands')
     if os.path.exists(TEMP_DIR): shutil.rmtree(TEMP_DIR)
     os.makedirs(TEMP_DIR, exist_ok=True)
@@ -35,7 +39,9 @@ if __name__ == '__main__':
         os.makedirs(event_processed_dir, exist_ok=True)
         os.makedirs(viz_dir, exist_ok=True)
         
-        if not os.path.isdir(event_raw_dir): continue
+        if not os.path.isdir(event_raw_dir): 
+            print(f"  -> Writable raw data directory not found for {event_name}. Skipping.")
+            continue
         
         common_grid, cropland_mask = define_event_grid_and_mask(event_raw_dir, viz_dir, event_name, TARGET_RESOLUTION)
         if common_grid is None: continue
@@ -50,7 +56,8 @@ if __name__ == '__main__':
         sorted_dates = sorted(products_by_date.keys())
         for i, date_str in enumerate(sorted_dates):
             print(f"\n  Processing timestep {i+1}/{len(sorted_dates)} (Date: {date_str})...")
-            product_paths = [p for p in products_by_date[date_str] if 'SAFE' in p or 'LC0' in p]
+            # Filter for .SAFE and Landsat folders, as the converted .tif files are inside them
+            product_paths = [p for p in products_by_date[date_str] if 'SAFE' in os.path.basename(p) or 'LC0' in os.path.basename(p)]
             
             temp_band_paths = process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz_dir, date_str, TEMP_DIR)
             
@@ -62,4 +69,6 @@ if __name__ == '__main__':
     print("\nCleaning up temporary files...")
     shutil.rmtree(TEMP_DIR)
     print(f"\n{'='*20} PREPROCESSING COMPLETE {'='*20}")
+    print(f"Intermediate 6-channel .mat files saved to: {PROCESSED_DATA_DIR}")
+    print("Download the 'processed' folder from Kaggle's output to run the local MATLAB script.")
 

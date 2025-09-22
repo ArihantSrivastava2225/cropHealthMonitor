@@ -1,54 +1,62 @@
 """
-Task 0: Convert Sentinel-2 JP2 files to GeoTIFF format.
+Task 0: Prepares a writable copy of the raw dataset.
 
-This script runs first to solve the rasterio driver issue on Kaggle
-by converting all problematic .jp2 files into a universally readable
-.tif format using the system's gdal_translate command.
+This script is the definitive fix for Kaggle's read-only file system and
+rasterio driver issues. It walks the read-only /kaggle/input directory,
+recreates the entire folder structure in the writable /kaggle/working
+directory, and converts any problematic .jp2 files to .tif format
+during the copy process.
 """
 import os
+import shutil
 import subprocess
 import glob
 
-def convert_all_jp2_to_tif(raw_data_dir):
+def prepare_writable_dataset(input_dir, output_dir):
     """
-    Scans the raw data directory for .jp2 files and converts them.
+    Copies the dataset from a read-only to a writable location,
+    converting .jp2 files to .tif along the way.
     """
-    print("--- Stage 0: Converting all Sentinel-2 JP2 files to GeoTIFF ---")
-    print("This may take several minutes...")
+    print("--- Stage 0: Preparing a Writable Dataset Copy ---")
+    print(f"Reading from: {input_dir}")
+    print(f"Writing to: {output_dir}")
     
-    # Use glob to recursively find all .jp2 files
-    jp2_files = glob.glob(os.path.join(raw_data_dir, '**', '*.jp2'), recursive=True)
-    
-    if not jp2_files:
-        print("  -> No .jp2 files found to convert.")
+    if os.path.exists(output_dir):
+        print("  -> Writable data directory already exists. Skipping copy/conversion.")
         return
 
+    os.makedirs(output_dir, exist_ok=True)
+    
     converted_count = 0
-    for jp2_path in jp2_files:
-        # Create the output filename by replacing the extension
-        tif_path = os.path.splitext(jp2_path)[0] + '.tif'
-        
-        # Skip if the converted file already exists
-        if os.path.exists(tif_path):
-            continue
-            
-        # Use the powerful gdal_translate command-line tool
-        command = [
-            'gdal_translate',
-            '-of', 'GTiff',   # Output format: GeoTIFF
-            jp2_path,         # Input file
-            tif_path          # Output file
-        ]
-        
-        try:
-            # Run the command
-            subprocess.run(command, check=True, capture_output=True, text=True)
-            converted_count += 1
-        except subprocess.CalledProcessError as e:
-            print(f"  ERROR converting {os.path.basename(jp2_path)}.")
-            print(f"  GDAL Error: {e.stderr}")
-        except FileNotFoundError:
-            print("FATAL ERROR: gdal_translate not found. This shouldn't happen on Kaggle.")
-            return
+    copied_count = 0
 
-    print(f"  -> Conversion complete. Converted {converted_count} files.")
+    # Walk through the entire read-only input directory structure
+    for dirpath, dirnames, filenames in os.walk(input_dir):
+        # Create the corresponding directory structure in the output
+        relative_path = os.path.relpath(dirpath, input_dir)
+        output_path = os.path.join(output_dir, relative_path)
+        os.makedirs(output_path, exist_ok=True)
+        
+        for filename in filenames:
+            source_file = os.path.join(dirpath, filename)
+            dest_file = os.path.join(output_path, filename)
+
+            if filename.endswith('.jp2'):
+                # For .jp2 files, convert them to .tif in the destination
+                tif_path = os.path.splitext(dest_file)[0] + '.tif'
+                if os.path.exists(tif_path): continue
+
+                command = ['gdal_translate', '-of', 'GTiff', source_file, tif_path]
+                try:
+                    subprocess.run(command, check=True, capture_output=True, text=True)
+                    converted_count += 1
+                except Exception as e:
+                    print(f"  ERROR converting {filename}: {e}")
+            else:
+                # For all other files, just copy them
+                if os.path.exists(dest_file): continue
+                shutil.copy2(source_file, dest_file)
+                copied_count += 1
+                
+    print(f"  -> Conversion complete. Converted {converted_count} JP2 files.")
+    print(f"  -> Copied {copied_count} other files.")

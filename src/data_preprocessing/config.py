@@ -5,14 +5,20 @@ Central Configuration File for the Preprocessing Pipeline
 import os
 
 # --- Base Paths for Kaggle ---
-# Input data comes from the read-only /kaggle/input/ directory.
-# Replace 'crophealthsatellitedatav1' with the exact name of your Kaggle dataset.
-RAW_DATA_DIR = '/kaggle/input/crophealthsatellitedatav1/organized_date'
+# The original, read-only input data directory.
+KAGGLE_INPUT_DIR = '/kaggle/input/crophealthsatellitedatav1/organized_date'
 
-# All output must be written to the /kaggle/working/ directory.
-PROCESSED_DATA_DIR = '/kaggle/working/processed'
+# The writable directory inside the Kaggle environment.
+KAGGLE_WORKING_DIR = '/kaggle/working'
 
-# --- Processing Settings (remain the same) ---
+# The pipeline will create a new, writable copy of the data here.
+# ALL subsequent processing will read from this path.
+RAW_DATA_DIR = os.path.join(KAGGLE_WORKING_DIR, 'writable_raw_data')
+
+# The final processed output will be saved here.
+PROCESSED_DATA_DIR = os.path.join(KAGGLE_WORKING_DIR, 'processed')
+
+# --- Processing Settings ---
 PATCH_SIZE = 256
 TARGET_RESOLUTION = 30  # meters
 
@@ -20,33 +26,9 @@ TARGET_RESOLUTION = 30  # meters
 EVENT_METADATA = {
     'Bathinda-PinkBollworm': {},
     'EasternUP-RedRot': {},
-    'Haryana-RiceBlast': {}, # Added from your screenshot
+    'Haryana-RiceBlast': {},
     'Punjab-leafhopper': {},
     'Ropar-wheatRust': {},
     'Una-yellowRust': {}
-    # Add any other event folders you have
 }
 
-### 2. How to Run the Pipeline on Kaggle
-
-# Now that your code is ready, here are the steps and the exact commands to run in your Kaggle notebook.
-
-# **Step 1: Create a New Kaggle Notebook**
-# * Go to Kaggle and start a new notebook.
-
-# **Step 2: Add Your Data and Code**
-# * **Add Your Raw Data:** In the notebook editor, click on **"+ Add Input"**. Go to the "Your Datasets" tab and add your `crophealthsatellitedatav1` dataset.
-# * **Clone Your GitHub Repo:** Click **"+ Add Input"** again. Go to the "Git" tab, enter the URL of your GitHub repository, and click the arrow to clone it. It will appear in `/kaggle/working/` with your repository's name (e.g., `cropHealthMonitor`).
-
-# **Step 3: Install Dependencies**
-# * In the first code cell of your notebook, run the following command to install all the necessary libraries from your `requirements.txt` file.
-
-# ```bash
-# !pip install -q -r /kaggle/working/cropHealthMonitor/requirements.txt
-# ```
-
-# **Step 4: Run the Preprocessing Pipeline**
-# * In the second code cell, run the command to execute your main pipeline script. This command tells Python to run your orchestrator, which will then call all the other modular scripts in the correct order.
-
-# ```bash
-# !python /kaggle/working/cropHealthMonitor/src/data_preprocessing/run_pipeline.py
