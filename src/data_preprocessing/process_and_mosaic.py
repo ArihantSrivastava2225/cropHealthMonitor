@@ -1,6 +1,6 @@
 """
-Task 2 (Kaggle Version): Reads pre-converted 5-band GeoTIFFs,
-mosaics them, applies a mask, and saves the final bands as separate files.
+Task 2 (Kaggle Version): Reads pre-converted GeoTIFFs, mosaics them, applies
+a mask, and saves the final bands as separate temporary files.
 This version is highly memory-efficient for very large rasters.
 """
 import os
@@ -10,25 +10,20 @@ import numpy as np
 from rasterio.enums import Resampling
 from rasterio.warp import reproject
 from PIL import Image
-from .utils import create_false_color_composite, print_raster_stats
+# --- CRITICAL FIX: Use an absolute import from the src root ---
+from data_preprocessing.utils import create_false_color_composite, print_raster_stats
 
 def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz_dir, date_str, temp_dir):
     """Processes all products for one day and saves 6 temp band files."""
+    # ... (The rest of the function code is identical to the last working version)
     target_crs, target_transform, target_shape = common_grid
-    
-    # --- MEMORY-EFFICIENT MOSAICKING SETUP ---
     mosaic_canvas_5_band = np.zeros(target_shape + (5,), dtype=np.float32)
     count_canvas = np.zeros(target_shape, dtype=np.uint8)
-
     print("    Iteratively processing and mosaicking daily products...")
     for product_path in product_paths:
         print(f"    - Processing product: {os.path.basename(product_path)}")
-        
-        if "S2" in os.path.basename(product_path):
-            band_map = {'blue': 'B02', 'green': 'B03', 'red': 'B04', 'nir': 'B08', 'swir1': 'B11'}
-        else:
-            band_map = {'blue': 'SR_B2', 'green': 'SR_B3', 'red': 'SR_B4', 'nir': 'SR_B5', 'swir1': 'SR_B6'}
-        
+        if "S2" in os.path.basename(product_path): band_map = {'blue': 'B02', 'green': 'B03', 'red': 'B04', 'nir': 'B08', 'swir1': 'B11'}
+        else: band_map = {'blue': 'SR_B2', 'green': 'SR_B3', 'red': 'SR_B4', 'nir': 'SR_B5', 'swir1': 'SR_B6'}
         reprojected_bands = {}
         if "S2" in os.path.basename(product_path):
             granule_path_list = glob.glob(os.path.join(product_path, 'GRANULE', 'L2A*'))
@@ -36,8 +31,7 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
             granule_path = granule_path_list[0]
             for band_name, s2_band_code in band_map.items():
                 res_folder = 'R20m' if s2_band_code in ['B11'] else 'R10m'
-                # Look for the .tif we created, not the .jp2
-                search_pattern = os.path.join(granule_path, 'IMG_DATA', res_folder, f'*_{s2_band_code}_*.tif')
+                search_pattern = os.path.join(granule_path, 'IMG_DATA', res_folder, f'*_{s2_band_code}_*.tif') # LOOK FOR .TIF
                 try:
                     file_path = glob.glob(search_pattern)[0]
                     with rasterio.open(file_path) as src:
@@ -47,7 +41,7 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
                 except IndexError:
                     print(f"      WARNING: Converted TIF not found for band {s2_band_code}. Skipping.")
                     continue
-        else: # Landsat (already .TIF)
+        else: # Landsat
             all_files = os.listdir(product_path)
             for band_name, l8_band_code in band_map.items():
                 try:
@@ -65,22 +59,17 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
             mosaic_canvas_5_band[valid_data_mask] += current_product_5_band[valid_data_mask]
             count_canvas[valid_data_mask] += 1
     
-    # --- Finalize the Mosaic ---
     count_canvas_expanded = np.expand_dims(count_canvas, axis=2)
     np.place(count_canvas_expanded, count_canvas_expanded == 0, 1)
     final_mosaic_5_band = mosaic_canvas_5_band / count_canvas_expanded
     print_raster_stats(final_mosaic_5_band, f"{date_str} Raw Mosaic (5 bands)")
     del mosaic_canvas_5_band, count_canvas, count_canvas_expanded
-
-    # --- Visualizations & Masking ---
     red_before, nir_before, swir1_before = [final_mosaic_5_band[:,:,i] for i in [2, 3, 4]]
     false_color_before = create_false_color_composite(red_before, nir_before, swir1_before)
     Image.fromarray(false_color_before).save(os.path.join(viz_dir, f"{date_str}_01_before_mask.png"))
     print("      -> 'Before' visualization saved.")
-    
     masked_5_band_array = final_mosaic_5_band * cropland_mask[..., np.newaxis]
     del final_mosaic_5_band
-    
     print("    Normalizing masked data (memory-efficiently)...")
     for i in range(5):
         channel = masked_5_band_array[:, :, i]
@@ -91,40 +80,31 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
             if p98 > p2:
                 mask = channel > 0
                 channel[mask] = (channel[mask] - p2) / (p98 - p2)
-
     blue, green, red, nir, swir1 = [masked_5_band_array[:,:,i] for i in range(5)]
     np.seterr(divide='ignore', invalid='ignore')
-    
     print("    Calculating indices (memory-efficiently)...")
     numerator_ndvi = nir - red
     denominator_ndvi = nir + red
     np.place(denominator_ndvi, denominator_ndvi == 0, 1)
     ndvi = numerator_ndvi / denominator_ndvi
     del numerator_ndvi, denominator_ndvi
-
     numerator_ndmi = nir - swir1
     denominator_ndmi = nir + swir1
     np.place(denominator_ndmi, denominator_ndmi == 0, 1)
     ndmi = numerator_ndmi / denominator_ndmi
     del numerator_ndmi, denominator_ndmi
-
     ndvi = np.nan_to_num(np.clip(ndvi, -1, 1))
     ndmi = np.nan_to_num(np.clip(ndmi, -1, 1))
-    
     false_color_after = create_false_color_composite(red, nir, swir1)
     Image.fromarray(false_color_after).save(os.path.join(viz_dir, f"{date_str}_02_after_mask.png"))
     print("      -> 'After' visualization saved.")
-
-    # --- Save bands individually to temp files ---
     band_names = ['blue', 'green', 'red', 'nir', 'ndvi', 'ndmi']
     bands_to_save = [blue, green, red, nir, ndvi, ndmi]
     temp_file_paths = []
-    
     print("    Saving individual bands to temporary files...")
     for name, band_data in zip(band_names, bands_to_save):
         temp_path = os.path.join(temp_dir, f"{date_str}_{name}.npy")
         np.save(temp_path, band_data)
         temp_file_paths.append(temp_path)
-    
     return temp_file_paths
 

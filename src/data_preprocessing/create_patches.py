@@ -1,27 +1,34 @@
 """
-Task 3: Slices a large, masked data array into smaller patches for the CNN.
-This version saves the final output in .mat format for MATLAB compatibility
-and uses a memory-efficient pre-allocation strategy.
+Task 3: Reads individual band files from disk and incrementally builds
+the final 6-channel patch array, saving it in .mat format.
 """
 import os
 import numpy as np
-import scipy.io  # Import SciPy for saving .mat files
+import scipy.io
 from PIL import Image, ImageDraw
-from utils import print_raster_stats
+# --- CRITICAL FIX: Use an absolute import from the src root ---
+from data_preprocessing.utils import print_raster_stats
 
-def create_and_save_patches(masked_data_array, date_str, patch_size, output_mat_path, output_viz_dir):
+def create_and_save_patches(temp_band_paths, date_str, patch_size, output_mat_path, output_viz_dir):
     """
-    Slices a data array into patches, saves them as a .mat file,
-    and creates a visualization of the patch grid.
+    Builds the final patch array by reading one band at a time from disk.
     """
-    if masked_data_array is None:
-        print("      -> Masked data is None. Skipping patch creation.")
+    if not temp_band_paths:
+        print("      -> No temporary band files found. Skipping patch creation.")
         return
 
-    print(f"    Slicing {date_str} data into {patch_size}x{patch_size} patches...")
-    height, width, num_channels = masked_data_array.shape
+    print(f"    Slicing {date_str} data into patches from temporary files...")
+    
+    # Load the first band to get dimensions
+    try:
+        first_band = np.load(temp_band_paths[0])
+    except FileNotFoundError:
+        print(f"      ERROR: Could not find temporary band file: {temp_band_paths[0]}")
+        return
+        
+    height, width = first_band.shape
+    num_channels = len(temp_band_paths)
 
-    # Calculate the number of full patches that can be extracted
     patches_y = height // patch_size
     patches_x = width // patch_size
     num_patches = patches_y * patches_x
@@ -30,7 +37,7 @@ def create_and_save_patches(masked_data_array, date_str, patch_size, output_mat_
         print("      -> No full patches could be extracted. Skipping file save.")
         return
 
-    # --- MEMORY-EFFICIENT PRE-ALLOCATION ---
+    # --- Pre-allocate the final 6-channel patch array ---
     print(f"      -> Pre-allocating memory for {num_patches} patches...")
     try:
         patches_array = np.zeros((num_patches, patch_size, patch_size, num_channels), dtype=np.float32)
@@ -38,24 +45,27 @@ def create_and_save_patches(masked_data_array, date_str, patch_size, output_mat_
         print("      ERROR: Not enough RAM to pre-allocate memory for all patches.")
         return
     
-    patch_index = 0
-    # Loop and copy slices directly into the pre-allocated array
-    for y in range(patches_y):
-        for x in range(patches_x):
-            start_y = y * patch_size
-            start_x = x * patch_size
-            patch = masked_data_array[start_y : start_y + patch_size, start_x : start_x + patch_size, :]
-            patches_array[patch_index] = patch
-            patch_index += 1
+    # --- Loop through each band, load it, patch it, and place it in the final array ---
+    for c, band_path in enumerate(temp_band_paths):
+        print(f"        - Processing channel {c+1}/{num_channels}...")
+        band_data = np.load(band_path)
+        patch_index = 0
+        for y in range(patches_y):
+            for x in range(patches_x):
+                start_y = y * patch_size
+                start_x = x * patch_size
+                patch = band_data[start_y : start_y + patch_size, start_x : start_x + patch_size]
+                patches_array[patch_index, :, :, c] = patch
+                patch_index += 1
+        # Free memory from the large band file
+        del band_data
 
     # --- Print Final Data Stats ---
     print_raster_stats(patches_array, f"{date_str} Final Patches")
     
-    # --- CRITICAL FIX: Save as a .mat file ---
-    # The data will be saved inside the .mat file under the variable name 'patches'
+    # --- Save as a .mat file ---
     mat_dict = {'patches': patches_array}
     scipy.io.savemat(output_mat_path, mat_dict)
-    
     print(f"      -> Saved {num_patches} patches to {os.path.basename(output_mat_path)}")
 
     # --- Create Grid Visualization ---
