@@ -5,9 +5,12 @@ Central Configuration File for the Preprocessing Pipeline
 import os
 
 # --- Base Paths for your Local Machine ---
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+# BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+# RAW_DATA_DIR = os.path.join(BASE_DIR, 'data', 'organize', 'organized_date')
+# PROCESSED_DATA_DIR = os.path.join(BASE_DIR, 'data', 'processed')
+BASE_DIR = "/content/drive/MyDrive/AgriTechPro"
 RAW_DATA_DIR = os.path.join(BASE_DIR, 'data', 'organize', 'organized_date')
-PROCESSED_DATA_DIR = os.path.join(BASE_DIR, 'data', 'processed')
+PROCESSED_DATA_DIR = os.path.join("/content/cropHealthMonitor", 'data', 'processed')
 
 # --- Processing Settings ---
 PATCH_SIZE = 256
