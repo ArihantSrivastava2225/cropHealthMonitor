@@ -1,85 +1,97 @@
 """
 Task 3: Reads individual band files from disk and incrementally builds
-the final 6-channel patch array, saving it in .mat format.
+the final 6-channel patch array, saving each valid patch as a separate .mat file.
+This approach is highly memory-efficient for very large datasets.
 """
 import os
 import numpy as np
 import scipy.io
 from PIL import Image, ImageDraw
-# --- CRITICAL FIX: Use an absolute import from the src root ---
-from data_preprocessing.utils import print_raster_stats
+from .utils import print_raster_stats
 
-def create_and_save_patches(temp_band_paths, date_str, patch_size, output_mat_path, output_viz_dir):
+# --- CRITICAL FIX: Disable the Decompression Bomb check for large images ---
+# Setting this to None allows Pillow to open images of any size.
+Image.MAX_IMAGE_PIXELS = None
+
+def create_and_save_individual_patches(temp_band_paths, date_str, patch_size, output_dir_for_patches, output_viz_dir):
     """
-    Builds the final patch array by reading one band at a time from disk.
+    Builds and saves individual patch files by reading from temporary band files.
     """
     if not temp_band_paths:
         print("      -> No temporary band files found. Skipping patch creation.")
         return
 
-    print(f"    Slicing {date_str} data into patches from temporary files...")
+    print(f"    Slicing {date_str} data into individual {patch_size}x{patch_size} patch files...")
     
-    # Load the first band to get dimensions
     try:
+        # Load the first band to get the dimensions of the full image
         first_band = np.load(temp_band_paths[0])
-    except FileNotFoundError:
-        print(f"      ERROR: Could not find temporary band file: {temp_band_paths[0]}")
+        height, width = first_band.shape
+        num_channels = len(temp_band_paths)
+    except Exception as e:
+        print(f"      ERROR: Could not load temporary band file to get dimensions. {e}")
         return
         
-    height, width = first_band.shape
-    num_channels = len(temp_band_paths)
-
     patches_y = height // patch_size
     patches_x = width // patch_size
-    num_patches = patches_y * patches_x
-
-    if num_patches == 0:
-        print("      -> No full patches could be extracted. Skipping file save.")
+    
+    if patches_y * patches_x == 0:
+        print("      -> No full patches could be extracted. Skipping.")
         return
 
-    # --- Pre-allocate the final 6-channel patch array ---
-    print(f"      -> Pre-allocating memory for {num_patches} patches...")
-    try:
-        patches_array = np.zeros((num_patches, patch_size, patch_size, num_channels), dtype=np.float32)
-    except MemoryError:
-        print("      ERROR: Not enough RAM to pre-allocate memory for all patches.")
-        return
+    saved_patch_count = 0
+    # Load NIR band (index 3) once to efficiently check for valid patches
+    nir_band_data = np.load(temp_band_paths[3])
     
-    # --- Loop through each band, load it, patch it, and place it in the final array ---
-    for c, band_path in enumerate(temp_band_paths):
-        print(f"        - Processing channel {c+1}/{num_channels}...")
-        band_data = np.load(band_path)
-        patch_index = 0
-        for y in range(patches_y):
-            for x in range(patches_x):
-                start_y = y * patch_size
-                start_x = x * patch_size
-                patch = band_data[start_y : start_y + patch_size, start_x : start_x + patch_size]
-                patches_array[patch_index, :, :, c] = patch
-                patch_index += 1
-        # Free memory from the large band file
-        del band_data
+    # Loop through the grid of potential patch locations
+    for y_idx in range(patches_y):
+        for x_idx in range(patches_x):
+            start_y, start_x = y_idx * patch_size, x_idx * patch_size
+            
+            # Use the pre-loaded NIR band to check if this patch is valid cropland
+            nir_patch_slice = nir_band_data[start_y:start_y+patch_size, start_x:start_x+patch_size]
+            
+            # If the patch is more than 90% empty (non-cropland), we skip it
+            if np.count_nonzero(nir_patch_slice) / nir_patch_slice.size < 0.1:
+                continue
 
-    # --- Print Final Data Stats ---
-    print_raster_stats(patches_array, f"{date_str} Final Patches")
-    
-    # --- Save as a .mat file ---
-    mat_dict = {'patches': patches_array}
-    scipy.io.savemat(output_mat_path, mat_dict)
-    print(f"      -> Saved {num_patches} patches to {os.path.basename(output_mat_path)}")
+            # --- If the patch is valid, we build the full 6-channel data for it ---
+            
+            # Pre-allocate memory for just one small 6-channel patch
+            full_patch = np.zeros((patch_size, patch_size, num_channels), dtype=np.float32)
+            
+            for c, band_path in enumerate(temp_band_paths):
+                # Load the full band from disk
+                band_data = np.load(band_path)
+                # Slice out just the small piece we need for this patch
+                full_patch[:, :, c] = band_data[start_y:start_y+patch_size, start_x:start_x+patch_size]
+            
+            # Save this single, complete patch to its own .mat file
+            patch_filename = f"patch_{y_idx}_{x_idx}.mat"
+            output_mat_path = os.path.join(output_dir_for_patches, patch_filename)
+            scipy.io.savemat(output_mat_path, {'patch_data': full_patch})
+            saved_patch_count += 1
+            
+    print(f"      -> Filtered and saved {saved_patch_count} valid cropland patches to '{date_str}' directory.")
 
-    # --- Create Grid Visualization ---
-    base_image_path = os.path.join(output_viz_dir, f"{date_str}_02_after_mask.png")
-    if os.path.exists(base_image_path):
-        img = Image.open(base_image_path).convert("RGBA")
-        draw = ImageDraw.Draw(img)
-        for y in range(patches_y):
-            for x in range(patches_x):
-                start_y = y * patch_size
-                start_x = x * patch_size
-                draw.rectangle([start_x, start_y, start_x + patch_size - 1, start_y + patch_size - 1], outline="cyan", width=2)
-        
-        viz_path = os.path.join(output_viz_dir, f"{date_str}_03_patch_grid.png")
-        img.save(viz_path)
-        print(f"      -> Patch grid visualization saved.")
+    # --- Create Grid Visualization (shows ALL potential patch locations) ---
+    # We only create the visualization if at least one patch was saved to avoid errors
+    if saved_patch_count > 0:
+        base_image_path = os.path.join(output_viz_dir, f"{date_str}_02_after_mask.png")
+        if os.path.exists(base_image_path):
+            try:
+                img = Image.open(base_image_path).convert("RGBA")
+                draw = ImageDraw.Draw(img)
+                for y in range(patches_y):
+                    for x in range(patches_x):
+                        start_y = y * patch_size
+                        start_x = x * patch_size
+                        # Draw a rectangle for every potential patch location on the visualization
+                        draw.rectangle([start_x, start_y, start_x + patch_size - 1, start_y + patch_size - 1], outline="cyan", width=2)
+                
+                viz_path = os.path.join(output_viz_dir, f"{date_str}_03_patch_grid.png")
+                img.save(viz_path)
+                print(f"      -> Patch grid visualization saved.")
+            except Exception as e:
+                print(f"      WARNING: Could not create grid visualization. Reason: {e}")
 

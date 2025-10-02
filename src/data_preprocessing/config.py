@@ -1,22 +1,13 @@
 """
 Central Configuration File for the Preprocessing Pipeline
-*** THIS VERSION IS CONFIGURED FOR THE KAGGLE NOTEBOOK ENVIRONMENT ***
+*** THIS VERSION IS CORRECTED TO MATCH YOUR FOLDER STRUCTURE ***
 """
 import os
 
-# --- Base Paths for Kaggle ---
-# The original, read-only input data directory.
-KAGGLE_INPUT_DIR = '/kaggle/input/crophealthsatellitedatav1/organized_date'
-
-# The writable directory inside the Kaggle environment.
-KAGGLE_WORKING_DIR = '/kaggle/working'
-
-# The pipeline will create a new, writable copy of the data here.
-# ALL subsequent processing will read from this path.
-RAW_DATA_DIR = os.path.join(KAGGLE_WORKING_DIR, 'writable_raw_data')
-
-# The final processed output will be saved here.
-PROCESSED_DATA_DIR = os.path.join(KAGGLE_WORKING_DIR, 'processed')
+# --- Base Paths for your Local Machine ---
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+RAW_DATA_DIR = os.path.join(BASE_DIR, 'data', 'organize', 'organized_date')
+PROCESSED_DATA_DIR = os.path.join(BASE_DIR, 'data', 'processed')
 
 # --- Processing Settings ---
 PATCH_SIZE = 256
@@ -24,10 +15,12 @@ TARGET_RESOLUTION = 30  # meters
 
 # --- Metadata (must match folder names in your input data) ---
 EVENT_METADATA = {
-    'Bathinda-PinkBollworm': {},
+    # 'Bathinda-PinkBollworm': {},
     'EasternUP-RedRot': {},
+    # CORRECTED: Replaced 'Maharashtra-Blacksmut' with the actual folder name
     'Haryana-RiceBlast': {},
-    'Punjab-leafhopper': {},
+    # CORRECTED: Matched the case for 'leafHopper'
+    'Punjab-leafHopper': {}, 
     'Ropar-wheatRust': {},
     'Una-yellowRust': {}
 }
