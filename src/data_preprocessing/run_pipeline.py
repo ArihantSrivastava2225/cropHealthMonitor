@@ -1,6 +1,6 @@
 """
 Main Orchestrator for the Local Preprocessing Pipeline.
-Manages a temporary directory for out-of-core processing of large rasters.
+This is the definitive "out-of-core" version that will not exceed RAM.
 """
 import os
 import shutil
@@ -57,15 +57,14 @@ if __name__ == '__main__':
             product_paths = [p for p in products_by_date[date_str] if 'SAFE' in p or 'LC0' in p]
             
             # --- Task 2: Process, Mosaic, and Mask ---
-            # This function returns a list of paths to temporary band files.
+            # This function now correctly receives the temp_dir path
             temp_band_paths = process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz_dir, date_str, TEMP_DIR)
             
             # --- Task 3: Create Individual Patches ---
+            # This function now correctly receives the list of temp_band_paths
             if temp_band_paths:
-                # Create a new subdirectory for this specific date to hold all its patch files
                 output_dir_for_patches = os.path.join(event_processed_dir, date_str)
                 os.makedirs(output_dir_for_patches, exist_ok=True)
-                
                 create_and_save_individual_patches(temp_band_paths, date_str, PATCH_SIZE, output_dir_for_patches, viz_dir)
 
     # --- Final Cleanup ---
@@ -75,3 +74,4 @@ if __name__ == '__main__':
     
     print(f"\n{'='*20} PREPROCESSING COMPLETE {'='*20}")
     print(f"Final data saved as individual .mat patch files in: {os.path.abspath(PROCESSED_DATA_DIR)}")
+

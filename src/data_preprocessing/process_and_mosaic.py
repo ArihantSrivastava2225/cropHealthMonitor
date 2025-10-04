@@ -1,7 +1,7 @@
 """
 Task 2 (Local Version): Processes raw satellite data using a memory-efficient
-iterative mosaicking approach and saves the final bands as separate temporary files.
-This is the definitive "out-of-core" version to handle massive datasets.
+iterative mosaicking approach and in-place normalization to handle very large
+geographic areas.
 """
 import os
 import glob
@@ -12,12 +12,10 @@ from rasterio.warp import reproject
 from PIL import Image
 from .utils import create_false_color_composite, print_raster_stats
 
-def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz_dir, date_str, temp_dir):
-    """Processes all products for one day and saves 6 temp band files."""
+def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz_dir, date_str):
+    """Processes all products for one day and returns a final 6-channel masked array."""
     target_crs, target_transform, target_shape = common_grid
     
-    # --- MEMORY-EFFICIENT MOSAICKING SETUP ---
-    # Create empty canvases to accumulate data iteratively.
     mosaic_canvas_5_band = np.zeros(target_shape + (5,), dtype=np.float32)
     count_canvas = np.zeros(target_shape, dtype=np.uint8)
 
@@ -65,27 +63,27 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
             mosaic_canvas_5_band[valid_data_mask] += current_product_5_band[valid_data_mask]
             count_canvas[valid_data_mask] += 1
     
-    if np.sum(count_canvas) == 0:
-        print("      -> No valid data found for this date. Skipping.")
-        return None
-
-    # --- Finalize the Mosaic with in-place operations ---
+    # --- Finalize the Mosaic ---
     count_canvas_expanded = np.expand_dims(count_canvas, axis=2)
     np.place(count_canvas_expanded, count_canvas_expanded == 0, 1)
+    
+    # --- Perform division in-place to save memory ---
     np.divide(mosaic_canvas_5_band, count_canvas_expanded, out=mosaic_canvas_5_band)
-    final_mosaic_5_band = mosaic_canvas_5_band
+    final_mosaic_5_band = mosaic_canvas_5_band # Rename for clarity
     
     print_raster_stats(final_mosaic_5_band, f"{date_str} Raw Mosaic (5 bands)")
-    del mosaic_canvas_5_band, count_canvas, count_canvas_expanded
+    # CRITICAL FIX: Only delete variables that were actually created in this scope
+    del count_canvas, count_canvas_expanded
 
-    # --- Visualizations & Masking ---
     red_before, nir_before, swir1_before = [final_mosaic_5_band[:,:,i] for i in [2, 3, 4]]
     false_color_before = create_false_color_composite(red_before, nir_before, swir1_before)
     Image.fromarray(false_color_before).save(os.path.join(viz_dir, f"{date_str}_01_before_mask.png"))
     print("      -> 'Before' visualization saved.")
     
+    # Apply Mask to the 5 raw bands in-place
     final_mosaic_5_band *= cropland_mask[..., np.newaxis]
     
+    # --- NORMALIZE THE MASKED BANDS IN-PLACE ---
     print("    Normalizing masked data (memory-efficiently)...")
     for i in range(5):
         channel = final_mosaic_5_band[:, :, i]
@@ -97,8 +95,8 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
                 mask = channel > 0
                 channel[mask] = (channel[mask] - p2) / (p98 - p2)
     
+    # --- Calculate Indices from CLEAN, NORMALIZED, MASKED data ---
     blue, green, red, nir, swir1 = [final_mosaic_5_band[:,:,i] for i in range(5)]
-    del final_mosaic_5_band # Free up memory
     np.seterr(divide='ignore', invalid='ignore')
     
     print("    Calculating indices (memory-efficiently)...")
@@ -120,17 +118,10 @@ def process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz
     false_color_after = create_false_color_composite(red, nir, swir1)
     Image.fromarray(false_color_after).save(os.path.join(viz_dir, f"{date_str}_02_after_mask.png"))
     print("      -> 'After' visualization saved.")
-
-    # --- Save bands individually to temporary files ---
-    band_names = ['blue', 'green', 'red', 'nir', 'ndvi', 'ndmi']
-    bands_to_save = [blue, green, red, nir, ndvi, ndmi]
-    temp_file_paths = []
     
-    print("    Saving individual bands to temporary files...")
-    for name, band_data in zip(band_names, bands_to_save):
-        temp_path = os.path.join(temp_dir, f"{date_str}_{name}.npy")
-        np.save(temp_path, band_data)
-        temp_file_paths.append(temp_path)
+    # --- Stack all clean, normalized bands at the very end ---
+    final_masked_data = np.stack([blue, green, red, nir, ndvi, ndmi], axis=-1)
+    print_raster_stats(final_masked_data, f"{date_str} Final Normalized Data (6 bands)")
     
-    return temp_file_paths
+    return final_masked_data
 
