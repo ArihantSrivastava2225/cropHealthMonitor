@@ -57,11 +57,10 @@ if __name__ == '__main__':
             product_paths = [p for p in products_by_date[date_str] if 'SAFE' in p or 'LC0' in p]
             
             # --- Task 2: Process, Mosaic, and Mask ---
-            # This function now correctly receives the temp_dir path
+            # CRITICAL FIX: Pass the TEMP_DIR path to the function
             temp_band_paths = process_and_mosaic_daily_data(product_paths, common_grid, cropland_mask, viz_dir, date_str, TEMP_DIR)
             
             # --- Task 3: Create Individual Patches ---
-            # This function now correctly receives the list of temp_band_paths
             if temp_band_paths:
                 output_dir_for_patches = os.path.join(event_processed_dir, date_str)
                 os.makedirs(output_dir_for_patches, exist_ok=True)
